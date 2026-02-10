@@ -83,6 +83,9 @@ export interface EvergreenAISettings {
   // Currently selected folder in settings UI
   selectedFolderIndex: number;
 
+  // Onboarding
+  hasShownWelcome: boolean;  // Track if welcome modal has been shown
+
   // Legacy fields (for backwards compatibility)
   placeholderIndicator: string;
   enableSuggestions: boolean;
@@ -99,6 +102,8 @@ export const DEFAULT_SETTINGS: EvergreenAISettings = {
 
   wonderlandFolders: [],  // Start empty, user picks existing folders
   selectedFolderIndex: 0,
+
+  hasShownWelcome: false,
 
   placeholderIndicator: '✨',
   enableSuggestions: true,

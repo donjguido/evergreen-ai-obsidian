@@ -7,10 +7,11 @@ import {
   Plugin,
   TFile,
   TFolder,
+  Setting,
 } from 'obsidian';
 import { EvergreenAISettings, DEFAULT_SETTINGS, WonderlandFolderSettings, createFolderSettings } from './types';
 import { EvergreenAISettingTab } from './settings';
-import { AIService } from './services/AIService';
+import { AIService, AIServiceError } from './services/AIService';
 import {
   EVERGREEN_NOTE_SYSTEM_PROMPT,
   EVERGREEN_NOTE_USER_PROMPT,
@@ -284,6 +285,17 @@ export default class EvergreenAIPlugin extends Plugin {
     // Set up intervals for all folders
     this.setupAllIntervals();
 
+    // Show welcome modal for first-time users
+    if (!this.settings.hasShownWelcome) {
+      // Small delay to ensure the workspace is ready
+      setTimeout(() => {
+        new WelcomeModal(this.app, this, async () => {
+          this.settings.hasShownWelcome = true;
+          await this.saveSettings();
+        }).open();
+      }, 500);
+    }
+
     console.log('Wonderland plugin loaded - ready to explore');
   }
 
@@ -405,7 +417,7 @@ export default class EvergreenAIPlugin extends Plugin {
     } catch (error) {
       notice.hide();
       console.error('Error generating note:', error);
-      new Notice(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      new Notice(`Error: ${AIService.getUserFriendlyError(error)}`);
     }
   }
 
@@ -581,7 +593,7 @@ export default class EvergreenAIPlugin extends Plugin {
     } catch (error) {
       notice.hide();
       console.error('Error generating placeholder note:', error);
-      new Notice(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      new Notice(`Error: ${AIService.getUserFriendlyError(error)}`);
     }
   }
 
@@ -629,7 +641,7 @@ export default class EvergreenAIPlugin extends Plugin {
     } catch (error) {
       if (notice) notice.hide();
       console.error('Error enriching note:', error);
-      if (!silent) new Notice(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      if (!silent) new Notice(`Error: ${AIService.getUserFriendlyError(error)}`);
       return false;
     }
   }
@@ -657,7 +669,7 @@ export default class EvergreenAIPlugin extends Plugin {
     } catch (error) {
       if (notice) notice.hide();
       console.error('Error in auto-update:', error);
-      if (!silent) new Notice(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      if (!silent) new Notice(`Error: ${AIService.getUserFriendlyError(error)}`);
     }
   }
 
@@ -778,7 +790,7 @@ export default class EvergreenAIPlugin extends Plugin {
     } catch (error) {
       if (notice) notice.hide();
       console.error('Error organizing Wonderland:', error);
-      if (!silent) new Notice(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      if (!silent) new Notice(`Error: ${AIService.getUserFriendlyError(error)}`);
     }
   }
 
@@ -860,7 +872,7 @@ ${response.content}
     } catch (error) {
       if (notice) notice.hide();
       console.error('Error generating tunnels document:', error);
-      if (!silent) new Notice(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      if (!silent) new Notice(`Error: ${AIService.getUserFriendlyError(error)}`);
     }
   }
 
@@ -954,7 +966,7 @@ ${response.content}
     } catch (error) {
       notice.hide();
       console.error('Error generating note content:', error);
-      new Notice(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      new Notice(`Error: ${AIService.getUserFriendlyError(error)}`);
     }
   }
 
@@ -1358,5 +1370,144 @@ class PromptModal extends Modal {
   onClose() {
     const { contentEl } = this;
     contentEl.empty();
+  }
+}
+
+// Welcome Modal for first-time users
+class WelcomeModal extends Modal {
+  private plugin: EvergreenAIPlugin;
+  private onComplete: () => void;
+
+  constructor(app: App, plugin: EvergreenAIPlugin, onComplete: () => void) {
+    super(app);
+    this.plugin = plugin;
+    this.onComplete = onComplete;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+
+    contentEl.addClass('wonderland-welcome-modal');
+
+    // Header with rabbit emoji
+    contentEl.createEl('div', {
+      text: '🐰',
+      cls: 'wonderland-welcome-emoji',
+    }).style.cssText = 'font-size: 4em; text-align: center; margin-bottom: 0.5em;';
+
+    contentEl.createEl('h1', {
+      text: 'Welcome to Wonderland',
+      cls: 'wonderland-welcome-title',
+    }).style.cssText = 'text-align: center; margin-bottom: 0.5em;';
+
+    contentEl.createEl('p', {
+      text: 'Go down the rabbit hole of knowledge',
+      cls: 'wonderland-welcome-subtitle',
+    }).style.cssText = 'text-align: center; color: var(--text-muted); margin-bottom: 1.5em; font-style: italic;';
+
+    // Features section
+    const featuresContainer = contentEl.createDiv({ cls: 'wonderland-features' });
+    featuresContainer.style.cssText = 'margin-bottom: 1.5em;';
+
+    const features = [
+      {
+        emoji: '✨',
+        title: 'AI-Powered Exploration',
+        desc: 'Ask a question and watch knowledge unfold with linked notes'
+      },
+      {
+        emoji: '🔗',
+        title: 'Linked Doorways',
+        desc: 'Click any [[link]] to auto-generate connected concepts'
+      },
+      {
+        emoji: '🗂️',
+        title: 'Smart Organization',
+        desc: 'Let AI organize your notes into thematic folders'
+      },
+      {
+        emoji: '📚',
+        title: 'Multiple Wonderlands',
+        desc: 'Create separate knowledge gardens for different domains'
+      }
+    ];
+
+    for (const feature of features) {
+      const featureEl = featuresContainer.createDiv({ cls: 'wonderland-feature' });
+      featureEl.style.cssText = 'display: flex; align-items: flex-start; margin-bottom: 1em;';
+
+      const emojiEl = featureEl.createSpan({ text: feature.emoji });
+      emojiEl.style.cssText = 'font-size: 1.5em; margin-right: 0.75em;';
+
+      const textEl = featureEl.createDiv();
+      textEl.createEl('strong', { text: feature.title });
+      textEl.createEl('p', { text: feature.desc }).style.cssText = 'margin: 0.25em 0 0 0; color: var(--text-muted); font-size: 0.9em;';
+    }
+
+    // Getting started section
+    const gettingStarted = contentEl.createDiv({ cls: 'wonderland-getting-started' });
+    gettingStarted.style.cssText = 'background: var(--background-secondary); padding: 1em; border-radius: 8px; margin-bottom: 1.5em;';
+
+    gettingStarted.createEl('h3', { text: '🚀 Quick Start' }).style.marginTop = '0';
+
+    const steps = gettingStarted.createEl('ol');
+    steps.style.cssText = 'margin: 0.5em 0; padding-left: 1.5em;';
+
+    const stepItems = [
+      'Configure your AI provider in Settings → Wonderland',
+      'Add a Wonderland folder (where your notes will live)',
+      'Click the 🐰 rabbit icon or use the command palette',
+      'Enter a question and start exploring!'
+    ];
+
+    for (const step of stepItems) {
+      steps.createEl('li', { text: step }).style.marginBottom = '0.5em';
+    }
+
+    // Button container
+    const buttonContainer = contentEl.createDiv({ cls: 'wonderland-welcome-buttons' });
+    buttonContainer.style.cssText = 'display: flex; justify-content: center; gap: 1em;';
+
+    const settingsBtn = buttonContainer.createEl('button', { text: 'Open Settings' });
+    settingsBtn.addEventListener('click', () => {
+      this.close();
+      // Open the plugin settings tab
+      (this.app as any).setting.open();
+      (this.app as any).setting.openTabById('wonderland');
+    });
+
+    const exploreBtn = buttonContainer.createEl('button', {
+      text: 'Start Exploring',
+      cls: 'mod-cta',
+    });
+    exploreBtn.addEventListener('click', () => {
+      this.close();
+      if (this.plugin.settings.wonderlandFolders.length === 0) {
+        new Notice('Add a Wonderland folder in settings first');
+        (this.app as any).setting.open();
+        (this.app as any).setting.openTabById('wonderland');
+      } else if (!this.plugin.settings.apiKey && this.plugin.settings.aiProvider !== 'ollama') {
+        new Notice('Configure your API key in settings first');
+        (this.app as any).setting.open();
+        (this.app as any).setting.openTabById('wonderland');
+      } else {
+        this.plugin.openPromptModal();
+      }
+    });
+
+    // Footer
+    const footer = contentEl.createDiv({ cls: 'wonderland-welcome-footer' });
+    footer.style.cssText = 'text-align: center; margin-top: 1em; color: var(--text-muted); font-size: 0.85em;';
+    footer.createEl('p', { text: '"Curiouser and curiouser!" - Alice' }).style.fontStyle = 'italic';
+
+    // Support link
+    const supportLink = footer.createEl('p');
+    supportLink.innerHTML = 'Enjoying Wonderland? <a href="https://ko-fi.com/donjguido" target="_blank">Support development</a>';
+  }
+
+  onClose() {
+    const { contentEl } = this;
+    contentEl.empty();
+    this.onComplete();
   }
 }

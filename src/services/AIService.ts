@@ -7,11 +7,51 @@ import {
   PROVIDER_DEFAULTS
 } from '../types';
 
+// Error types for better error handling
+export class AIServiceError extends Error {
+  constructor(
+    message: string,
+    public readonly code: AIErrorCode,
+    public readonly retryable: boolean = false,
+    public readonly retryAfter?: number // seconds
+  ) {
+    super(message);
+    this.name = 'AIServiceError';
+  }
+}
+
+export enum AIErrorCode {
+  RATE_LIMIT = 'RATE_LIMIT',
+  NETWORK_ERROR = 'NETWORK_ERROR',
+  TIMEOUT = 'TIMEOUT',
+  INVALID_API_KEY = 'INVALID_API_KEY',
+  QUOTA_EXCEEDED = 'QUOTA_EXCEEDED',
+  MODEL_NOT_FOUND = 'MODEL_NOT_FOUND',
+  CONTEXT_LENGTH_EXCEEDED = 'CONTEXT_LENGTH_EXCEEDED',
+  SERVER_ERROR = 'SERVER_ERROR',
+  UNKNOWN = 'UNKNOWN',
+}
+
+// Retry configuration
+interface RetryConfig {
+  maxRetries: number;
+  baseDelayMs: number;
+  maxDelayMs: number;
+}
+
+const DEFAULT_RETRY_CONFIG: RetryConfig = {
+  maxRetries: 3,
+  baseDelayMs: 1000,
+  maxDelayMs: 30000,
+};
+
 export class AIService {
   private settings: EvergreenAISettings;
+  private retryConfig: RetryConfig;
 
-  constructor(settings: EvergreenAISettings) {
+  constructor(settings: EvergreenAISettings, retryConfig?: Partial<RetryConfig>) {
     this.settings = settings;
+    this.retryConfig = { ...DEFAULT_RETRY_CONFIG, ...retryConfig };
   }
 
   updateSettings(settings: EvergreenAISettings): void {
@@ -29,31 +69,52 @@ export class AIService {
   }
 
   async generate(prompt: string, systemPrompt: string): Promise<AIResponse> {
-    const { endpoint, headers, body } = this.buildRequest(prompt, systemPrompt, false);
+    return this.executeWithRetry(async () => {
+      const { endpoint, headers, body } = this.buildRequest(prompt, systemPrompt, false);
 
-    console.log('Wonderland - Making request to:', endpoint);
-    console.log('Wonderland - Using model:', body.model);
+      console.log('Wonderland - Making request to:', endpoint);
+      console.log('Wonderland - Using model:', body.model);
 
-    try {
-      const response = await requestUrl({
-        url: endpoint,
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-      });
+      try {
+        const response = await requestUrl({
+          url: endpoint,
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body),
+        });
 
-      console.log('Wonderland - Response status:', response.status);
+        console.log('Wonderland - Response status:', response.status);
 
-      if (response.status >= 400) {
-        console.error('Wonderland - Error response:', response.json);
-        throw new Error(`API error ${response.status}: ${JSON.stringify(response.json)}`);
+        if (response.status >= 400) {
+          console.error('Wonderland - Error response:', response.json);
+          throw this.parseErrorResponse(response.status, response.json);
+        }
+
+        return this.parseResponse(response.json);
+      } catch (error) {
+        // Handle network errors specifically
+        if (this.isNetworkError(error)) {
+          throw new AIServiceError(
+            'Network error - please check your internet connection',
+            AIErrorCode.NETWORK_ERROR,
+            true
+          );
+        }
+
+        // Re-throw AIServiceErrors as-is
+        if (error instanceof AIServiceError) {
+          throw error;
+        }
+
+        // Wrap unknown errors
+        console.error('Wonderland - Request failed:', error);
+        throw new AIServiceError(
+          error instanceof Error ? error.message : 'Unknown error occurred',
+          AIErrorCode.UNKNOWN,
+          false
+        );
       }
-
-      return this.parseResponse(response.json);
-    } catch (error) {
-      console.error('Wonderland - Request failed:', error);
-      throw error;
-    }
+    });
   }
 
   async generateStream(
@@ -64,60 +125,255 @@ export class AIService {
   ): Promise<void> {
     const { endpoint, headers, body } = this.buildRequest(prompt, systemPrompt, true);
 
-    // Use fetch for streaming (requestUrl doesn't support streaming)
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-    });
-
-    if (!response.ok) {
-      throw new Error(`API request failed: ${response.status} ${response.statusText}`);
-    }
-
-    const reader = response.body?.getReader();
-    if (!reader) {
-      throw new Error('No response body');
-    }
-
-    const decoder = new TextDecoder();
-    let buffer = '';
+    // Create an AbortController for timeout handling
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minute timeout
 
     try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
+      clearTimeout(timeoutId);
 
-        for (const line of lines) {
-          const chunk = this.parseStreamChunk(line);
-          if (chunk) {
-            if (chunk.done) {
-              onComplete();
-              return;
-            }
-            if (chunk.content) {
-              onChunk(chunk.content);
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}));
+        throw this.parseErrorResponse(response.status, errorBody);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new AIServiceError('No response body', AIErrorCode.UNKNOWN, false);
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            const chunk = this.parseStreamChunk(line);
+            if (chunk) {
+              if (chunk.done) {
+                onComplete();
+                return;
+              }
+              if (chunk.content) {
+                onChunk(chunk.content);
+              }
             }
           }
         }
+
+        // Process any remaining buffer
+        if (buffer) {
+          const chunk = this.parseStreamChunk(buffer);
+          if (chunk?.content) {
+            onChunk(chunk.content);
+          }
+        }
+
+        onComplete();
+      } finally {
+        reader.releaseLock();
+      }
+    } catch (error) {
+      clearTimeout(timeoutId);
+
+      // Handle abort/timeout
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new AIServiceError(
+          'Request timed out - try with shorter content or check your connection',
+          AIErrorCode.TIMEOUT,
+          true
+        );
       }
 
-      // Process any remaining buffer
-      if (buffer) {
-        const chunk = this.parseStreamChunk(buffer);
-        if (chunk?.content) {
-          onChunk(chunk.content);
+      if (error instanceof AIServiceError) {
+        throw error;
+      }
+
+      if (this.isNetworkError(error)) {
+        throw new AIServiceError(
+          'Network error - please check your internet connection',
+          AIErrorCode.NETWORK_ERROR,
+          true
+        );
+      }
+
+      throw new AIServiceError(
+        error instanceof Error ? error.message : 'Unknown streaming error',
+        AIErrorCode.UNKNOWN,
+        false
+      );
+    }
+  }
+
+  private async executeWithRetry<T>(operation: () => Promise<T>): Promise<T> {
+    let lastError: Error | undefined;
+
+    for (let attempt = 0; attempt <= this.retryConfig.maxRetries; attempt++) {
+      try {
+        return await operation();
+      } catch (error) {
+        lastError = error as Error;
+
+        if (error instanceof AIServiceError) {
+          // Don't retry non-retryable errors
+          if (!error.retryable) {
+            throw error;
+          }
+
+          // Check if we've exhausted retries
+          if (attempt >= this.retryConfig.maxRetries) {
+            throw error;
+          }
+
+          // Calculate delay with exponential backoff
+          let delayMs = this.retryConfig.baseDelayMs * Math.pow(2, attempt);
+
+          // Use retry-after header if available
+          if (error.retryAfter) {
+            delayMs = error.retryAfter * 1000;
+          }
+
+          // Cap the delay
+          delayMs = Math.min(delayMs, this.retryConfig.maxDelayMs);
+
+          console.log(`Wonderland - Retry attempt ${attempt + 1}/${this.retryConfig.maxRetries} after ${delayMs}ms delay`);
+          await this.delay(delayMs);
+        } else {
+          // Unknown error type, don't retry
+          throw error;
         }
       }
-
-      onComplete();
-    } finally {
-      reader.releaseLock();
     }
+
+    throw lastError || new AIServiceError('Retry limit exceeded', AIErrorCode.UNKNOWN, false);
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  private isNetworkError(error: unknown): boolean {
+    if (error instanceof Error) {
+      const networkErrorMessages = [
+        'fetch failed',
+        'network',
+        'Failed to fetch',
+        'NetworkError',
+        'ECONNREFUSED',
+        'ENOTFOUND',
+        'ETIMEDOUT',
+        'ECONNRESET',
+        'ERR_NETWORK',
+      ];
+
+      return networkErrorMessages.some(msg =>
+        error.message.toLowerCase().includes(msg.toLowerCase()) ||
+        error.name.toLowerCase().includes(msg.toLowerCase())
+      );
+    }
+    return false;
+  }
+
+  private parseErrorResponse(status: number, body: Record<string, unknown>): AIServiceError {
+    // Extract error message from various provider formats
+    let message = 'API request failed';
+    let errorCode = AIErrorCode.UNKNOWN;
+    let retryable = false;
+    let retryAfter: number | undefined;
+
+    // Try to extract error message from response body
+    const errorObj = body.error as Record<string, unknown> | undefined;
+    if (errorObj?.message) {
+      message = String(errorObj.message);
+    } else if (body.message) {
+      message = String(body.message);
+    } else if (body.detail) {
+      message = String(body.detail);
+    }
+
+    // Parse based on status code
+    switch (status) {
+      case 400:
+        // Bad request - could be context length
+        if (message.toLowerCase().includes('context') ||
+            message.toLowerCase().includes('token') ||
+            message.toLowerCase().includes('length')) {
+          errorCode = AIErrorCode.CONTEXT_LENGTH_EXCEEDED;
+          message = 'Content too long - try with shorter text or break it into smaller parts';
+        }
+        break;
+
+      case 401:
+        errorCode = AIErrorCode.INVALID_API_KEY;
+        message = 'Invalid API key - please check your API key in settings';
+        break;
+
+      case 403:
+        errorCode = AIErrorCode.INVALID_API_KEY;
+        message = 'Access denied - your API key may not have the required permissions';
+        break;
+
+      case 404:
+        errorCode = AIErrorCode.MODEL_NOT_FOUND;
+        message = `Model not found - please check the model name in settings`;
+        break;
+
+      case 429:
+        errorCode = AIErrorCode.RATE_LIMIT;
+        retryable = true;
+
+        // Check for quota exceeded vs rate limit
+        if (message.toLowerCase().includes('quota') ||
+            message.toLowerCase().includes('billing') ||
+            message.toLowerCase().includes('limit exceeded')) {
+          errorCode = AIErrorCode.QUOTA_EXCEEDED;
+          message = 'API quota exceeded - please check your billing/usage limits';
+          retryable = false;
+        } else {
+          message = 'Rate limit reached - waiting and retrying...';
+
+          // Try to extract retry-after
+          const retryMatch = message.match(/try again in (\d+)/i);
+          if (retryMatch) {
+            retryAfter = parseInt(retryMatch[1], 10);
+          } else {
+            retryAfter = 60; // Default to 60 seconds for rate limits
+          }
+        }
+        break;
+
+      case 500:
+      case 502:
+      case 503:
+      case 504:
+        errorCode = AIErrorCode.SERVER_ERROR;
+        retryable = true;
+        message = `Server error (${status}) - the AI service may be experiencing issues. Retrying...`;
+        retryAfter = 5; // Short retry for server errors
+        break;
+
+      default:
+        if (status >= 500) {
+          errorCode = AIErrorCode.SERVER_ERROR;
+          retryable = true;
+        }
+    }
+
+    return new AIServiceError(message, errorCode, retryable, retryAfter);
   }
 
   private buildRequest(
@@ -137,7 +393,7 @@ export class AIService {
       case 'custom':
         return this.buildCustomRequest(prompt, systemPrompt, stream);
       default:
-        throw new Error(`Unknown provider: ${provider}`);
+        throw new AIServiceError(`Unknown provider: ${provider}`, AIErrorCode.UNKNOWN, false);
     }
   }
 
@@ -342,5 +598,29 @@ export class AIService {
       // JSON parse error - skip this line
       return null;
     }
+  }
+
+  // Utility method to get user-friendly error message
+  static getUserFriendlyError(error: unknown): string {
+    if (error instanceof AIServiceError) {
+      return error.message;
+    }
+
+    if (error instanceof Error) {
+      // Clean up common error messages
+      const message = error.message;
+
+      if (message.includes('fetch failed') || message.includes('Failed to fetch')) {
+        return 'Network error - please check your internet connection';
+      }
+
+      if (message.includes('timeout') || message.includes('Timeout')) {
+        return 'Request timed out - try again or check your connection';
+      }
+
+      return message;
+    }
+
+    return 'An unexpected error occurred';
   }
 }

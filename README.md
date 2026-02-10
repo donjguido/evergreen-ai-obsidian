@@ -6,6 +6,9 @@ Wonderland is an AI-powered Obsidian plugin that transforms how you explore idea
 
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-Support%20Development-ff5f5f?logo=ko-fi)](https://ko-fi.com/donjguido)
 
+<!-- TODO: Add hero screenshot/GIF showing the plugin in action -->
+<!-- Suggested: A GIF showing: Enter Wonderland → type topic → note generates with links → click link → new note auto-generates -->
+
 ## Features
 
 ### The Rabbit Hole Experience
@@ -16,6 +19,8 @@ Wonderland is an AI-powered Obsidian plugin that transforms how you explore idea
 - **Down the Rabbit Hole**: Each note ends with intriguing concepts that lead deeper
 - **Multi-Provider Support**: Works with OpenAI, Anthropic (Claude), Ollama (local), or custom endpoints
 
+<!-- TODO: Add screenshot showing a generated note with wikilinks and "Down the rabbit hole" section -->
+
 ### Multiple Wonderlands
 
 Create separate knowledge gardens for different domains:
@@ -24,12 +29,16 @@ Create separate knowledge gardens for different domains:
 - **Tech Wonderland**: Technical concepts with code examples
 - Each folder can have its own custom instructions for the AI
 
+<!-- TODO: Add screenshot showing multiple Wonderland folders in settings -->
+
 ### Smart Organization
 
 - **Auto-Organize**: Let AI organize notes into thematic subfolders
 - **Organize on Schedule**: Reorganize every X hours
 - **Organize on Note Count**: Reorganize after every X new notes
 - **Per-Folder Settings**: Each Wonderland can have different organization rules
+
+<!-- TODO: Add before/after screenshot showing notes organized into subfolders -->
 
 ### Rabbit Holes Index
 
@@ -38,6 +47,8 @@ Never lose track of unexplored paths:
 - See which concepts are waiting to be explored
 - Grouped thematically for easy navigation
 - Updates automatically as you explore
+
+<!-- TODO: Add screenshot showing a Rabbit Holes Index document -->
 
 ### Knowledge Enrichment
 
@@ -81,6 +92,8 @@ Then copy `main.js`, `manifest.json`, and `styles.css` to your vault's plugin fo
 4. Choose your preferred model
 5. Add a Wonderland folder (click "Add Wonderland Folder")
 
+<!-- TODO: Add screenshot of settings page showing AI provider configuration -->
+
 ### AI Provider Setup
 
 | Provider | API Key Required | Models |
@@ -101,6 +114,8 @@ Each Wonderland folder can be configured independently:
 - **Organize on Note Count**: Reorganize after X new notes
 - **Rabbit Holes Index**: Generate an index of all unexplored links
 
+<!-- TODO: Add screenshot of Wonderland folder settings panel -->
+
 ## Usage
 
 ### Enter Wonderland
@@ -110,6 +125,8 @@ Each Wonderland folder can be configured independently:
 3. Enter your question or topic
 4. Select which Wonderland folder to use
 5. Watch the knowledge unfold with linked doorways
+
+<!-- TODO: Add screenshot of the "Enter Wonderland" modal -->
 
 ### Explore from Selection
 
@@ -123,6 +140,8 @@ When you see a `[[link]]` to an unexplored concept:
 1. Click it
 2. A new note opens and generates content automatically
 3. Each note offers more rabbit holes to explore
+
+<!-- TODO: Add GIF showing clicking a link and watching auto-generation happen -->
 
 ### Down the Rabbit Hole
 

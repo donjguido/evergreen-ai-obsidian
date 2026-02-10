@@ -61,6 +61,7 @@ var DEFAULT_SETTINGS = {
   wonderlandFolders: [],
   // Start empty, user picks existing folders
   selectedFolderIndex: 0,
+  hasShownWelcome: false,
   placeholderIndicator: "\u2728",
   enableSuggestions: true,
   suggestionFrequency: "daily"
@@ -465,9 +466,24 @@ var EvergreenAISettingTab = class extends import_obsidian.PluginSettingTab {
 
 // src/services/AIService.ts
 var import_obsidian2 = require("obsidian");
+var AIServiceError = class extends Error {
+  constructor(message, code, retryable = false, retryAfter) {
+    super(message);
+    this.code = code;
+    this.retryable = retryable;
+    this.retryAfter = retryAfter;
+    this.name = "AIServiceError";
+  }
+};
+var DEFAULT_RETRY_CONFIG = {
+  maxRetries: 3,
+  baseDelayMs: 1e3,
+  maxDelayMs: 3e4
+};
 var AIService = class {
-  constructor(settings) {
+  constructor(settings, retryConfig) {
     this.settings = settings;
+    this.retryConfig = { ...DEFAULT_RETRY_CONFIG, ...retryConfig };
   }
   updateSettings(settings) {
     this.settings = settings;
@@ -482,75 +498,238 @@ var AIService = class {
     }
   }
   async generate(prompt, systemPrompt) {
-    const { endpoint, headers, body } = this.buildRequest(prompt, systemPrompt, false);
-    console.log("Wonderland - Making request to:", endpoint);
-    console.log("Wonderland - Using model:", body.model);
-    try {
-      const response = await (0, import_obsidian2.requestUrl)({
-        url: endpoint,
-        method: "POST",
-        headers,
-        body: JSON.stringify(body)
-      });
-      console.log("Wonderland - Response status:", response.status);
-      if (response.status >= 400) {
-        console.error("Wonderland - Error response:", response.json);
-        throw new Error(`API error ${response.status}: ${JSON.stringify(response.json)}`);
+    return this.executeWithRetry(async () => {
+      const { endpoint, headers, body } = this.buildRequest(prompt, systemPrompt, false);
+      console.log("Wonderland - Making request to:", endpoint);
+      console.log("Wonderland - Using model:", body.model);
+      try {
+        const response = await (0, import_obsidian2.requestUrl)({
+          url: endpoint,
+          method: "POST",
+          headers,
+          body: JSON.stringify(body)
+        });
+        console.log("Wonderland - Response status:", response.status);
+        if (response.status >= 400) {
+          console.error("Wonderland - Error response:", response.json);
+          throw this.parseErrorResponse(response.status, response.json);
+        }
+        return this.parseResponse(response.json);
+      } catch (error) {
+        if (this.isNetworkError(error)) {
+          throw new AIServiceError(
+            "Network error - please check your internet connection",
+            "NETWORK_ERROR" /* NETWORK_ERROR */,
+            true
+          );
+        }
+        if (error instanceof AIServiceError) {
+          throw error;
+        }
+        console.error("Wonderland - Request failed:", error);
+        throw new AIServiceError(
+          error instanceof Error ? error.message : "Unknown error occurred",
+          "UNKNOWN" /* UNKNOWN */,
+          false
+        );
       }
-      return this.parseResponse(response.json);
-    } catch (error) {
-      console.error("Wonderland - Request failed:", error);
-      throw error;
-    }
+    });
   }
   async generateStream(prompt, systemPrompt, onChunk, onComplete) {
     var _a;
     const { endpoint, headers, body } = this.buildRequest(prompt, systemPrompt, true);
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body)
-    });
-    if (!response.ok) {
-      throw new Error(`API request failed: ${response.status} ${response.statusText}`);
-    }
-    const reader = (_a = response.body) == null ? void 0 : _a.getReader();
-    if (!reader) {
-      throw new Error("No response body");
-    }
-    const decoder = new TextDecoder();
-    let buffer = "";
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12e4);
     try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done)
-          break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-        for (const line of lines) {
-          const chunk = this.parseStreamChunk(line);
-          if (chunk) {
-            if (chunk.done) {
-              onComplete();
-              return;
-            }
-            if (chunk.content) {
-              onChunk(chunk.content);
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}));
+        throw this.parseErrorResponse(response.status, errorBody);
+      }
+      const reader = (_a = response.body) == null ? void 0 : _a.getReader();
+      if (!reader) {
+        throw new AIServiceError("No response body", "UNKNOWN" /* UNKNOWN */, false);
+      }
+      const decoder = new TextDecoder();
+      let buffer = "";
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done)
+            break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+          for (const line of lines) {
+            const chunk = this.parseStreamChunk(line);
+            if (chunk) {
+              if (chunk.done) {
+                onComplete();
+                return;
+              }
+              if (chunk.content) {
+                onChunk(chunk.content);
+              }
             }
           }
         }
+        if (buffer) {
+          const chunk = this.parseStreamChunk(buffer);
+          if (chunk == null ? void 0 : chunk.content) {
+            onChunk(chunk.content);
+          }
+        }
+        onComplete();
+      } finally {
+        reader.releaseLock();
       }
-      if (buffer) {
-        const chunk = this.parseStreamChunk(buffer);
-        if (chunk == null ? void 0 : chunk.content) {
-          onChunk(chunk.content);
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new AIServiceError(
+          "Request timed out - try with shorter content or check your connection",
+          "TIMEOUT" /* TIMEOUT */,
+          true
+        );
+      }
+      if (error instanceof AIServiceError) {
+        throw error;
+      }
+      if (this.isNetworkError(error)) {
+        throw new AIServiceError(
+          "Network error - please check your internet connection",
+          "NETWORK_ERROR" /* NETWORK_ERROR */,
+          true
+        );
+      }
+      throw new AIServiceError(
+        error instanceof Error ? error.message : "Unknown streaming error",
+        "UNKNOWN" /* UNKNOWN */,
+        false
+      );
+    }
+  }
+  async executeWithRetry(operation) {
+    let lastError;
+    for (let attempt = 0; attempt <= this.retryConfig.maxRetries; attempt++) {
+      try {
+        return await operation();
+      } catch (error) {
+        lastError = error;
+        if (error instanceof AIServiceError) {
+          if (!error.retryable) {
+            throw error;
+          }
+          if (attempt >= this.retryConfig.maxRetries) {
+            throw error;
+          }
+          let delayMs = this.retryConfig.baseDelayMs * Math.pow(2, attempt);
+          if (error.retryAfter) {
+            delayMs = error.retryAfter * 1e3;
+          }
+          delayMs = Math.min(delayMs, this.retryConfig.maxDelayMs);
+          console.log(`Wonderland - Retry attempt ${attempt + 1}/${this.retryConfig.maxRetries} after ${delayMs}ms delay`);
+          await this.delay(delayMs);
+        } else {
+          throw error;
         }
       }
-      onComplete();
-    } finally {
-      reader.releaseLock();
     }
+    throw lastError || new AIServiceError("Retry limit exceeded", "UNKNOWN" /* UNKNOWN */, false);
+  }
+  delay(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+  isNetworkError(error) {
+    if (error instanceof Error) {
+      const networkErrorMessages = [
+        "fetch failed",
+        "network",
+        "Failed to fetch",
+        "NetworkError",
+        "ECONNREFUSED",
+        "ENOTFOUND",
+        "ETIMEDOUT",
+        "ECONNRESET",
+        "ERR_NETWORK"
+      ];
+      return networkErrorMessages.some(
+        (msg) => error.message.toLowerCase().includes(msg.toLowerCase()) || error.name.toLowerCase().includes(msg.toLowerCase())
+      );
+    }
+    return false;
+  }
+  parseErrorResponse(status, body) {
+    let message = "API request failed";
+    let errorCode = "UNKNOWN" /* UNKNOWN */;
+    let retryable = false;
+    let retryAfter;
+    const errorObj = body.error;
+    if (errorObj == null ? void 0 : errorObj.message) {
+      message = String(errorObj.message);
+    } else if (body.message) {
+      message = String(body.message);
+    } else if (body.detail) {
+      message = String(body.detail);
+    }
+    switch (status) {
+      case 400:
+        if (message.toLowerCase().includes("context") || message.toLowerCase().includes("token") || message.toLowerCase().includes("length")) {
+          errorCode = "CONTEXT_LENGTH_EXCEEDED" /* CONTEXT_LENGTH_EXCEEDED */;
+          message = "Content too long - try with shorter text or break it into smaller parts";
+        }
+        break;
+      case 401:
+        errorCode = "INVALID_API_KEY" /* INVALID_API_KEY */;
+        message = "Invalid API key - please check your API key in settings";
+        break;
+      case 403:
+        errorCode = "INVALID_API_KEY" /* INVALID_API_KEY */;
+        message = "Access denied - your API key may not have the required permissions";
+        break;
+      case 404:
+        errorCode = "MODEL_NOT_FOUND" /* MODEL_NOT_FOUND */;
+        message = `Model not found - please check the model name in settings`;
+        break;
+      case 429:
+        errorCode = "RATE_LIMIT" /* RATE_LIMIT */;
+        retryable = true;
+        if (message.toLowerCase().includes("quota") || message.toLowerCase().includes("billing") || message.toLowerCase().includes("limit exceeded")) {
+          errorCode = "QUOTA_EXCEEDED" /* QUOTA_EXCEEDED */;
+          message = "API quota exceeded - please check your billing/usage limits";
+          retryable = false;
+        } else {
+          message = "Rate limit reached - waiting and retrying...";
+          const retryMatch = message.match(/try again in (\d+)/i);
+          if (retryMatch) {
+            retryAfter = parseInt(retryMatch[1], 10);
+          } else {
+            retryAfter = 60;
+          }
+        }
+        break;
+      case 500:
+      case 502:
+      case 503:
+      case 504:
+        errorCode = "SERVER_ERROR" /* SERVER_ERROR */;
+        retryable = true;
+        message = `Server error (${status}) - the AI service may be experiencing issues. Retrying...`;
+        retryAfter = 5;
+        break;
+      default:
+        if (status >= 500) {
+          errorCode = "SERVER_ERROR" /* SERVER_ERROR */;
+          retryable = true;
+        }
+    }
+    return new AIServiceError(message, errorCode, retryable, retryAfter);
   }
   buildRequest(prompt, systemPrompt, stream) {
     const provider = this.settings.aiProvider;
@@ -564,7 +743,7 @@ var AIService = class {
       case "custom":
         return this.buildCustomRequest(prompt, systemPrompt, stream);
       default:
-        throw new Error(`Unknown provider: ${provider}`);
+        throw new AIServiceError(`Unknown provider: ${provider}`, "UNKNOWN" /* UNKNOWN */, false);
     }
   }
   buildOpenAIRequest(prompt, systemPrompt, stream) {
@@ -738,6 +917,23 @@ var AIService = class {
     } catch (e) {
       return null;
     }
+  }
+  // Utility method to get user-friendly error message
+  static getUserFriendlyError(error) {
+    if (error instanceof AIServiceError) {
+      return error.message;
+    }
+    if (error instanceof Error) {
+      const message = error.message;
+      if (message.includes("fetch failed") || message.includes("Failed to fetch")) {
+        return "Network error - please check your internet connection";
+      }
+      if (message.includes("timeout") || message.includes("Timeout")) {
+        return "Request timed out - try again or check your connection";
+      }
+      return message;
+    }
+    return "An unexpected error occurred";
   }
 };
 
@@ -1170,6 +1366,14 @@ var EvergreenAIPlugin = class extends import_obsidian3.Plugin {
     );
     this.addSettingTab(new EvergreenAISettingTab(this.app, this));
     this.setupAllIntervals();
+    if (!this.settings.hasShownWelcome) {
+      setTimeout(() => {
+        new WelcomeModal(this.app, this, async () => {
+          this.settings.hasShownWelcome = true;
+          await this.saveSettings();
+        }).open();
+      }, 500);
+    }
     console.log("Wonderland plugin loaded - ready to explore");
   }
   onunload() {
@@ -1259,7 +1463,7 @@ var EvergreenAIPlugin = class extends import_obsidian3.Plugin {
     } catch (error) {
       notice.hide();
       console.error("Error generating note:", error);
-      new import_obsidian3.Notice(`Error: ${error instanceof Error ? error.message : "Unknown error"}`);
+      new import_obsidian3.Notice(`Error: ${AIService.getUserFriendlyError(error)}`);
     }
   }
   async handleLinkClick(evt) {
@@ -1388,7 +1592,7 @@ var EvergreenAIPlugin = class extends import_obsidian3.Plugin {
     } catch (error) {
       notice.hide();
       console.error("Error generating placeholder note:", error);
-      new import_obsidian3.Notice(`Error: ${error instanceof Error ? error.message : "Unknown error"}`);
+      new import_obsidian3.Notice(`Error: ${AIService.getUserFriendlyError(error)}`);
     }
   }
   async enrichNoteWithKnowledge(file, folderSettings, silent = false) {
@@ -1430,7 +1634,7 @@ ${n.content.substring(0, 500)}...`).join("\n\n");
         notice.hide();
       console.error("Error enriching note:", error);
       if (!silent)
-        new import_obsidian3.Notice(`Error: ${error instanceof Error ? error.message : "Unknown error"}`);
+        new import_obsidian3.Notice(`Error: ${AIService.getUserFriendlyError(error)}`);
       return false;
     }
   }
@@ -1457,7 +1661,7 @@ ${n.content.substring(0, 500)}...`).join("\n\n");
         notice.hide();
       console.error("Error in auto-update:", error);
       if (!silent)
-        new import_obsidian3.Notice(`Error: ${error instanceof Error ? error.message : "Unknown error"}`);
+        new import_obsidian3.Notice(`Error: ${AIService.getUserFriendlyError(error)}`);
     }
   }
   async getRelatedWonderlandNotes(currentFile, folderSettings) {
@@ -1563,7 +1767,7 @@ ${n.content.substring(0, 500)}...`).join("\n\n");
         notice.hide();
       console.error("Error organizing Wonderland:", error);
       if (!silent)
-        new import_obsidian3.Notice(`Error: ${error instanceof Error ? error.message : "Unknown error"}`);
+        new import_obsidian3.Notice(`Error: ${AIService.getUserFriendlyError(error)}`);
     }
   }
   // Increment the note counter and trigger reorganization if threshold reached
@@ -1634,7 +1838,7 @@ ${response.content}
         notice.hide();
       console.error("Error generating tunnels document:", error);
       if (!silent)
-        new import_obsidian3.Notice(`Error: ${error instanceof Error ? error.message : "Unknown error"}`);
+        new import_obsidian3.Notice(`Error: ${AIService.getUserFriendlyError(error)}`);
     }
   }
   // Get all unresolved links within a Wonderland folder
@@ -1702,7 +1906,7 @@ ${response.content}
     } catch (error) {
       notice.hide();
       console.error("Error generating note content:", error);
-      new import_obsidian3.Notice(`Error: ${error instanceof Error ? error.message : "Unknown error"}`);
+      new import_obsidian3.Notice(`Error: ${AIService.getUserFriendlyError(error)}`);
     }
   }
   async handleFileOpen(file) {
@@ -2024,5 +2228,111 @@ var PromptModal = class extends import_obsidian3.Modal {
   onClose() {
     const { contentEl } = this;
     contentEl.empty();
+  }
+};
+var WelcomeModal = class extends import_obsidian3.Modal {
+  constructor(app, plugin, onComplete) {
+    super(app);
+    this.plugin = plugin;
+    this.onComplete = onComplete;
+  }
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.addClass("wonderland-welcome-modal");
+    contentEl.createEl("div", {
+      text: "\u{1F430}",
+      cls: "wonderland-welcome-emoji"
+    }).style.cssText = "font-size: 4em; text-align: center; margin-bottom: 0.5em;";
+    contentEl.createEl("h1", {
+      text: "Welcome to Wonderland",
+      cls: "wonderland-welcome-title"
+    }).style.cssText = "text-align: center; margin-bottom: 0.5em;";
+    contentEl.createEl("p", {
+      text: "Go down the rabbit hole of knowledge",
+      cls: "wonderland-welcome-subtitle"
+    }).style.cssText = "text-align: center; color: var(--text-muted); margin-bottom: 1.5em; font-style: italic;";
+    const featuresContainer = contentEl.createDiv({ cls: "wonderland-features" });
+    featuresContainer.style.cssText = "margin-bottom: 1.5em;";
+    const features = [
+      {
+        emoji: "\u2728",
+        title: "AI-Powered Exploration",
+        desc: "Ask a question and watch knowledge unfold with linked notes"
+      },
+      {
+        emoji: "\u{1F517}",
+        title: "Linked Doorways",
+        desc: "Click any [[link]] to auto-generate connected concepts"
+      },
+      {
+        emoji: "\u{1F5C2}\uFE0F",
+        title: "Smart Organization",
+        desc: "Let AI organize your notes into thematic folders"
+      },
+      {
+        emoji: "\u{1F4DA}",
+        title: "Multiple Wonderlands",
+        desc: "Create separate knowledge gardens for different domains"
+      }
+    ];
+    for (const feature of features) {
+      const featureEl = featuresContainer.createDiv({ cls: "wonderland-feature" });
+      featureEl.style.cssText = "display: flex; align-items: flex-start; margin-bottom: 1em;";
+      const emojiEl = featureEl.createSpan({ text: feature.emoji });
+      emojiEl.style.cssText = "font-size: 1.5em; margin-right: 0.75em;";
+      const textEl = featureEl.createDiv();
+      textEl.createEl("strong", { text: feature.title });
+      textEl.createEl("p", { text: feature.desc }).style.cssText = "margin: 0.25em 0 0 0; color: var(--text-muted); font-size: 0.9em;";
+    }
+    const gettingStarted = contentEl.createDiv({ cls: "wonderland-getting-started" });
+    gettingStarted.style.cssText = "background: var(--background-secondary); padding: 1em; border-radius: 8px; margin-bottom: 1.5em;";
+    gettingStarted.createEl("h3", { text: "\u{1F680} Quick Start" }).style.marginTop = "0";
+    const steps = gettingStarted.createEl("ol");
+    steps.style.cssText = "margin: 0.5em 0; padding-left: 1.5em;";
+    const stepItems = [
+      "Configure your AI provider in Settings \u2192 Wonderland",
+      "Add a Wonderland folder (where your notes will live)",
+      "Click the \u{1F430} rabbit icon or use the command palette",
+      "Enter a question and start exploring!"
+    ];
+    for (const step of stepItems) {
+      steps.createEl("li", { text: step }).style.marginBottom = "0.5em";
+    }
+    const buttonContainer = contentEl.createDiv({ cls: "wonderland-welcome-buttons" });
+    buttonContainer.style.cssText = "display: flex; justify-content: center; gap: 1em;";
+    const settingsBtn = buttonContainer.createEl("button", { text: "Open Settings" });
+    settingsBtn.addEventListener("click", () => {
+      this.close();
+      this.app.setting.open();
+      this.app.setting.openTabById("wonderland");
+    });
+    const exploreBtn = buttonContainer.createEl("button", {
+      text: "Start Exploring",
+      cls: "mod-cta"
+    });
+    exploreBtn.addEventListener("click", () => {
+      this.close();
+      if (this.plugin.settings.wonderlandFolders.length === 0) {
+        new import_obsidian3.Notice("Add a Wonderland folder in settings first");
+        this.app.setting.open();
+        this.app.setting.openTabById("wonderland");
+      } else if (!this.plugin.settings.apiKey && this.plugin.settings.aiProvider !== "ollama") {
+        new import_obsidian3.Notice("Configure your API key in settings first");
+        this.app.setting.open();
+        this.app.setting.openTabById("wonderland");
+      } else {
+        this.plugin.openPromptModal();
+      }
+    });
+    const footer = contentEl.createDiv({ cls: "wonderland-welcome-footer" });
+    footer.style.cssText = "text-align: center; margin-top: 1em; color: var(--text-muted); font-size: 0.85em;";
+    footer.createEl("p", { text: '"Curiouser and curiouser!" - Alice' }).style.fontStyle = "italic";
+    const supportLink = footer.createEl("p");
+    supportLink.innerHTML = 'Enjoying Wonderland? <a href="https://ko-fi.com/donjguido" target="_blank">Support development</a>';
+  }
+  onClose() {
+    const { contentEl } = this;
+    contentEl.empty();
+    this.onComplete();
   }
 };
