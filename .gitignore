@@ -26,3 +26,6 @@ coverage/
 
 # TypeScript cache
 *.tsbuildinfo
+
+# Development planning
+PLAN.md
