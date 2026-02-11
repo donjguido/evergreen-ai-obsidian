@@ -6,7 +6,7 @@ Wonderland is an AI-powered Obsidian plugin that transforms how you explore idea
 
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-Support%20Development-ff5f5f?logo=ko-fi)](https://ko-fi.com/donjguido)
 
-![Demo of Wonderland](assets/Wonderland_Demon.gif)
+[![Demo of Wonderland](assets/Wonderland_Demon.gif)]
 
 ## Features
 
