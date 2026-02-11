@@ -245,6 +245,10 @@ npm run build
 npm run dev
 ```
 
+## Privacy
+
+Wonderland does not collect any data. Your notes stay on your device. When generating content, prompts are sent only to your configured AI provider. See [PRIVACY.md](PRIVACY.md) for details.
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
