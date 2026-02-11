@@ -654,6 +654,12 @@ var EvergreenAISettingTab = class extends import_obsidian.PluginSettingTab {
 
 // src/services/AIService.ts
 var import_obsidian2 = require("obsidian");
+var DEBUG = false;
+function debugLog(...args) {
+  if (DEBUG) {
+    console.log("Wonderland AI -", ...args);
+  }
+}
 var AIServiceError = class extends Error {
   constructor(message, code, retryable = false, retryAfter) {
     super(message);
@@ -695,8 +701,8 @@ var AIService = class {
     }
     return this.executeWithRetry(async () => {
       const { endpoint, headers, body } = this.buildRequest(prompt, systemPrompt, false);
-      console.log("Wonderland - Making request to:", endpoint);
-      console.log("Wonderland - Using model:", body.model);
+      debugLog(" Making request to:", endpoint);
+      debugLog(" Using model:", body.model);
       try {
         const response = await (0, import_obsidian2.requestUrl)({
           url: endpoint,
@@ -704,9 +710,9 @@ var AIService = class {
           headers,
           body: JSON.stringify(body)
         });
-        console.log("Wonderland - Response status:", response.status);
+        debugLog(" Response status:", response.status);
         if (response.status >= 400) {
-          console.error("Wonderland - Error response:", response.json);
+          console.error("AIService: Error response:", response.json);
           throw this.parseErrorResponse(response.status, response.json);
         }
         return this.parseResponse(response.json);
@@ -721,7 +727,7 @@ var AIService = class {
         if (error instanceof AIServiceError) {
           throw error;
         }
-        console.error("Wonderland - Request failed:", error);
+        console.error("AIService: Request failed:", error);
         throw new AIServiceError(
           error instanceof Error ? error.message : "Unknown error occurred",
           "UNKNOWN" /* UNKNOWN */,
@@ -842,7 +848,7 @@ var AIService = class {
             delayMs = error.retryAfter * 1e3;
           }
           delayMs = Math.min(delayMs, this.retryConfig.maxDelayMs);
-          console.log(`Wonderland - Retry attempt ${attempt + 1}/${this.retryConfig.maxRetries} after ${delayMs}ms delay`);
+          debugLog(` Retry attempt ${attempt + 1}/${this.retryConfig.maxRetries} after ${delayMs}ms delay`);
           await this.delay(delayMs);
         } else {
           throw error;
@@ -1418,6 +1424,12 @@ Create a complete, atomic note exploring this concept. Include appropriate [[pla
 };
 
 // src/main.ts
+var DEBUG2 = false;
+function debugLog2(...args) {
+  if (DEBUG2) {
+    debugLog2("", ...args);
+  }
+}
 var EvergreenAIPlugin = class extends import_obsidian3.Plugin {
   constructor() {
     super(...arguments);
@@ -1482,7 +1494,7 @@ var EvergreenAIPlugin = class extends import_obsidian3.Plugin {
     let updated = false;
     for (const folder of this.settings.wonderlandFolders) {
       if (folder.path === oldPath) {
-        console.log(`Wonderland - Folder renamed from ${oldPath} to ${newPath}`);
+        debugLog2(`Folder renamed from ${oldPath} to ${newPath}`);
         folder.path = newPath;
         updated = true;
       }
@@ -1499,7 +1511,7 @@ var EvergreenAIPlugin = class extends import_obsidian3.Plugin {
     this.settings.wonderlandFolders = this.settings.wonderlandFolders.filter((folder) => {
       const isDeleted = folder.path === deletedPath || folder.path.startsWith(deletedPath + "/");
       if (isDeleted) {
-        console.log(`Wonderland - Removing deleted folder from settings: ${folder.path}`);
+        debugLog2(`Removing deleted folder from settings: ${folder.path}`);
       }
       return !isDeleted;
     });
@@ -1744,15 +1756,15 @@ var EvergreenAIPlugin = class extends import_obsidian3.Plugin {
               const content = await this.app.vault.read(file);
               const isEmpty = content.trim() === "";
               if (this.isUntitledNote(file.basename)) {
-                console.log("Wonderland - Untitled note created, skipping tracking");
+                debugLog2(" Untitled note created, skipping tracking");
                 return;
               }
               if (isEmpty) {
                 if (fileWonderlandFolder) {
-                  console.log("Wonderland - New empty file created in Wonderland:", file.path);
+                  debugLog2(" New empty file created in Wonderland:", file.path);
                   this.pendingGenerations.set(file.path, fileWonderlandFolder);
                 } else if (sourceFolder) {
-                  console.log("Wonderland - New empty file created outside Wonderland:", file.path, "- will move to:", sourceFolder);
+                  debugLog2(" New empty file created outside Wonderland:", file.path, "- will move to:", sourceFolder);
                   this.pendingGenerations.set(file.path, sourceFolder);
                 }
               }
@@ -1785,7 +1797,7 @@ var EvergreenAIPlugin = class extends import_obsidian3.Plugin {
         for (const folder of this.settings.wonderlandFolders) {
           if (folder.path.startsWith(oldPath + "/")) {
             const newFolderPath = folder.path.replace(oldPath, file.path);
-            console.log(`Wonderland - Parent folder renamed, updating ${folder.path} to ${newFolderPath}`);
+            debugLog2(` Parent folder renamed, updating ${folder.path} to ${newFolderPath}`);
             folder.path = newFolderPath;
             await this.saveSettings();
           }
@@ -1809,7 +1821,7 @@ var EvergreenAIPlugin = class extends import_obsidian3.Plugin {
         }).open();
       }, 500);
     }
-    console.log("Wonderland plugin loaded - ready to explore");
+    debugLog2("Plugin loaded - ready to explore");
   }
   onunload() {
     for (const interval of this.organizeIntervals.values()) {
@@ -1818,7 +1830,7 @@ var EvergreenAIPlugin = class extends import_obsidian3.Plugin {
     for (const interval of this.autoUpdateIntervals.values()) {
       window.clearInterval(interval);
     }
-    console.log("Wonderland plugin unloaded");
+    debugLog2("Plugin unloaded");
   }
   // Set up intervals for all configured folders
   setupAllIntervals() {
@@ -1838,20 +1850,20 @@ var EvergreenAIPlugin = class extends import_obsidian3.Plugin {
     if (folder.organizeOnInterval && folder.autoOrganize) {
       const intervalMs = folder.organizeIntervalMinutes * 60 * 1e3;
       const intervalId = window.setInterval(async () => {
-        console.log(`Wonderland - Running scheduled organization for ${folder.path}`);
+        debugLog2(` Running scheduled organization for ${folder.path}`);
         await this.organizeWonderlandFolder(folder, true);
       }, intervalMs);
       this.organizeIntervals.set(folder.path, intervalId);
-      console.log(`Wonderland - Auto-organize scheduled every ${folder.organizeIntervalMinutes} minutes for ${folder.path}`);
+      debugLog2(` Auto-organize scheduled every ${folder.organizeIntervalMinutes} minutes for ${folder.path}`);
     }
     if (folder.autoUpdateNotes) {
       const intervalMs = folder.autoUpdateIntervalMinutes * 60 * 1e3;
       const intervalId = window.setInterval(async () => {
-        console.log(`Wonderland - Running scheduled auto-update for ${folder.path}`);
+        debugLog2(` Running scheduled auto-update for ${folder.path}`);
         await this.autoUpdateFolderNotes(folder, true);
       }, intervalMs);
       this.autoUpdateIntervals.set(folder.path, intervalId);
-      console.log(`Wonderland - Auto-update scheduled every ${folder.autoUpdateIntervalMinutes} minutes for ${folder.path}`);
+      debugLog2(` Auto-update scheduled every ${folder.autoUpdateIntervalMinutes} minutes for ${folder.path}`);
     }
   }
   async loadSettings() {
@@ -1926,12 +1938,12 @@ var EvergreenAIPlugin = class extends import_obsidian3.Plugin {
   async handleLinkClick(evt) {
     var _a, _b;
     const target = evt.target;
-    console.log("Wonderland - Click detected on:", target.tagName, target.className);
+    debugLog2(" Click detected on:", target.tagName, target.className);
     let linkText = null;
     let linkElement = target.closest(".internal-link");
     if (linkElement) {
       linkText = linkElement.getAttribute("data-href");
-      console.log("Wonderland - Found internal-link, href:", linkText);
+      debugLog2(" Found internal-link, href:", linkText);
     }
     if (!linkText) {
       const cmLink = target.closest(".cm-hmd-internal-link, .cm-link, .cm-underline");
@@ -1939,9 +1951,9 @@ var EvergreenAIPlugin = class extends import_obsidian3.Plugin {
         const lineEl = target.closest(".cm-line");
         if (lineEl) {
           const lineText = lineEl.textContent || "";
-          console.log("Wonderland - Line text:", lineText);
+          debugLog2(" Line text:", lineText);
           const linkMatches = lineText.match(/\[\[([^\]]+)\]\]/g);
-          console.log("Wonderland - Link matches:", linkMatches);
+          debugLog2(" Link matches:", linkMatches);
           if (linkMatches && linkMatches.length > 0) {
             let clickedText = target.textContent || "";
             let parent = target.parentElement;
@@ -1964,30 +1976,30 @@ var EvergreenAIPlugin = class extends import_obsidian3.Plugin {
               }
               parent = parent.parentElement;
             }
-            console.log("Wonderland - Clicked text:", clickedText);
+            debugLog2(" Clicked text:", clickedText);
             for (const match of linkMatches) {
               const innerText = match.slice(2, -2);
               const linkName = innerText.split("|")[0];
               if (linkName === clickedText || innerText === clickedText || linkName.includes(clickedText) || clickedText.includes(linkName) || innerText.includes(clickedText)) {
                 linkText = linkName;
-                console.log("Wonderland - Matched link:", linkText);
+                debugLog2(" Matched link:", linkText);
                 break;
               }
             }
             if (!linkText && linkMatches.length === 1) {
               linkText = linkMatches[0].slice(2, -2).split("|")[0];
-              console.log("Wonderland - Using single link on line:", linkText);
+              debugLog2(" Using single link on line:", linkText);
             }
           }
         }
       }
     }
     if (!linkText) {
-      console.log("Wonderland - Could not find link text, ignoring");
+      debugLog2(" Could not find link text, ignoring");
       return;
     }
     const linkedFile = this.app.metadataCache.getFirstLinkpathDest(linkText, "");
-    console.log("Wonderland - Linked file exists:", !!linkedFile);
+    debugLog2(" Linked file exists:", !!linkedFile);
     if (linkedFile)
       return;
     const activeFile = this.app.workspace.getActiveFile();
@@ -1995,14 +2007,14 @@ var EvergreenAIPlugin = class extends import_obsidian3.Plugin {
       return;
     const folderSettings = this.getWonderlandSettingsFor(activeFile.path);
     if (!folderSettings) {
-      console.log("Wonderland - Source note not in a Wonderland folder, ignoring");
+      debugLog2(" Source note not in a Wonderland folder, ignoring");
       return;
     }
     if (!folderSettings.autoGeneratePlaceholders) {
-      console.log("Wonderland - Auto-generation disabled for this folder");
+      debugLog2(" Auto-generation disabled for this folder");
       return;
     }
-    console.log("Wonderland - Intercepting placeholder link click for:", linkText);
+    debugLog2(" Intercepting placeholder link click for:", linkText);
     evt.preventDefault();
     evt.stopPropagation();
     if (!this.validateSettings())
@@ -2037,9 +2049,9 @@ var EvergreenAIPlugin = class extends import_obsidian3.Plugin {
             const newFilePath = `${newFolderPath}/${newFile.name}`;
             try {
               await this.app.fileManager.renameFile(newFile, newFilePath);
-              console.log(`Wonderland - Moved note to: ${classifiedFolder}`);
+              debugLog2(` Moved note to: ${classifiedFolder}`);
             } catch (e) {
-              console.error("Wonderland - Failed to move note:", e);
+              console.error(" Failed to move note:", e);
             }
           }
         }
@@ -2056,7 +2068,7 @@ var EvergreenAIPlugin = class extends import_obsidian3.Plugin {
     if (!this.validateSettings())
       return false;
     if (this.isNoteBlacklisted(file.path, folderSettings)) {
-      console.log(`Wonderland - Skipping enrichment for blacklisted note: ${file.basename}`);
+      debugLog2(` Skipping enrichment for blacklisted note: ${file.basename}`);
       if (!silent)
         new import_obsidian3.Notice(`"${file.basename}" is blacklisted from enrichment`);
       return false;
@@ -2241,9 +2253,9 @@ ${n.content.substring(0, 500)}...`).join("\n\n");
       return;
     folderSettings.notesSinceLastOrganize = (folderSettings.notesSinceLastOrganize || 0) + 1;
     await this.saveSettings();
-    console.log(`Wonderland - Notes since last organize: ${folderSettings.notesSinceLastOrganize}/${folderSettings.organizeNoteCountThreshold}`);
+    debugLog2(` Notes since last organize: ${folderSettings.notesSinceLastOrganize}/${folderSettings.organizeNoteCountThreshold}`);
     if (folderSettings.notesSinceLastOrganize >= folderSettings.organizeNoteCountThreshold) {
-      console.log("Wonderland - Note count threshold reached, triggering reorganization");
+      debugLog2(" Note count threshold reached, triggering reorganization");
       await this.organizeWonderlandFolder(folderSettings, true);
     }
   }
@@ -2253,9 +2265,9 @@ ${n.content.substring(0, 500)}...`).join("\n\n");
       return;
     folderSettings.notesSinceLastEnrich = (folderSettings.notesSinceLastEnrich || 0) + 1;
     await this.saveSettings();
-    console.log(`Wonderland - Notes since last enrich: ${folderSettings.notesSinceLastEnrich}/${folderSettings.enrichNoteCountThreshold}`);
+    debugLog2(` Notes since last enrich: ${folderSettings.notesSinceLastEnrich}/${folderSettings.enrichNoteCountThreshold}`);
     if (folderSettings.notesSinceLastEnrich >= folderSettings.enrichNoteCountThreshold) {
-      console.log("Wonderland - Enrich threshold reached, triggering enrichment");
+      debugLog2(" Enrich threshold reached, triggering enrichment");
       await this.autoUpdateFolderNotes(folderSettings, true);
     }
   }
@@ -2381,9 +2393,9 @@ ${response.content}
           const newFilePath = `${newFolderPath}/${file.name}`;
           try {
             await this.app.fileManager.renameFile(file, newFilePath);
-            console.log(`Wonderland - Moved note to: ${classifiedFolder}`);
+            debugLog2(` Moved note to: ${classifiedFolder}`);
           } catch (e) {
-            console.error("Wonderland - Failed to move note:", e);
+            console.error(" Failed to move note:", e);
           }
         }
       }
@@ -2404,23 +2416,23 @@ ${response.content}
     if (file.extension !== "md")
       return;
     if (this.isUntitledNote(file.basename)) {
-      console.log("Wonderland - Untitled note detected, skipping auto-generation");
+      debugLog2(" Untitled note detected, skipping auto-generation");
       this.pendingGenerations.delete(file.path);
       return;
     }
     const sourceWonderlandPath = this.pendingGenerations.get(file.path);
     if (!sourceWonderlandPath) {
-      console.log("Wonderland - Note not from link click, skipping auto-generation");
+      debugLog2(" Note not from link click, skipping auto-generation");
       return;
     }
     const folderSettings = this.settings.wonderlandFolders.find((f) => f.path === sourceWonderlandPath);
     if (!folderSettings) {
-      console.log("Wonderland - Source folder no longer configured, skipping");
+      debugLog2(" Source folder no longer configured, skipping");
       this.pendingGenerations.delete(file.path);
       return;
     }
     if (!folderSettings.autoGenerateEmptyNotes) {
-      console.log("Wonderland - Auto-generation disabled for this folder");
+      debugLog2(" Auto-generation disabled for this folder");
       this.pendingGenerations.delete(file.path);
       return;
     }
@@ -2430,24 +2442,24 @@ ${response.content}
     const content = await this.app.vault.read(file);
     const trimmedContent = content.trim();
     if (trimmedContent.length > 0) {
-      console.log("Wonderland - Note has content, skipping auto-generation");
+      debugLog2(" Note has content, skipping auto-generation");
       return;
     }
-    console.log("Wonderland - Empty note from link click detected:", file.basename);
-    console.log("Wonderland - Will place in folder:", sourceWonderlandPath);
+    debugLog2(" Empty note from link click detected:", file.basename);
+    debugLog2(" Will place in folder:", sourceWonderlandPath);
     const isInCorrectFolder = file.path.startsWith(sourceWonderlandPath + "/");
     if (!isInCorrectFolder) {
       await this.ensureFolderExists(sourceWonderlandPath);
       const newPath = `${sourceWonderlandPath}/${file.name}`;
       try {
-        console.log("Wonderland - Moving file from", file.path, "to", newPath);
+        debugLog2(" Moving file from", file.path, "to", newPath);
         await this.app.fileManager.renameFile(file, newPath);
         const movedFile = this.app.vault.getAbstractFileByPath(newPath);
         if (movedFile instanceof import_obsidian3.TFile) {
           await this.generateContentForNote(movedFile, folderSettings);
         }
       } catch (e) {
-        console.error("Wonderland - Failed to move file:", e);
+        console.error(" Failed to move file:", e);
         await this.generateContentForNote(file, folderSettings);
       }
     } else {
@@ -2544,7 +2556,7 @@ ${response.content}
       if (classifiedFolder && classifiedFolder !== "uncategorized") {
         targetFolder = `${folderSettings.path}/${classifiedFolder}`;
         await this.ensureFolderExists(targetFolder);
-        console.log(`Wonderland - Auto-classified note into: ${classifiedFolder}`);
+        debugLog2(` Auto-classified note into: ${classifiedFolder}`);
       }
     }
     const filePath = await this.getAvailableFilePath(title, targetFolder);
@@ -2555,7 +2567,7 @@ ${response.content}
     try {
       const subfolders = await this.getWonderlandSubfolders(folderSettings.path);
       if (subfolders.length === 0) {
-        console.log("Wonderland - No subfolders exist yet, skipping classification");
+        debugLog2(" No subfolders exist yet, skipping classification");
         return null;
       }
       let folderContext = "";
@@ -2586,7 +2598,7 @@ Which folder should this note go in? Respond with ONLY the folder name.`;
       }
       return null;
     } catch (error) {
-      console.error("Wonderland - Error classifying note:", error);
+      console.error(" Error classifying note:", error);
       return null;
     }
   }
@@ -3015,10 +3027,16 @@ var WelcomeModal = class extends import_obsidian3.Modal {
       }
     });
     const footer = contentEl.createDiv({ cls: "wonderland-welcome-footer" });
-    footer.style.cssText = "text-align: center; margin-top: 1em; color: var(--text-muted); font-size: 0.85em;";
-    footer.createEl("p", { text: '"Curiouser and curiouser!" - Alice' }).style.fontStyle = "italic";
-    const supportLink = footer.createEl("p");
-    supportLink.innerHTML = 'Enjoying Wonderland? <a href="https://ko-fi.com/donjguido" target="_blank">Support development</a>';
+    footer.addClass("wonderland-welcome-footer");
+    const quote = footer.createEl("p", { text: '"Curiouser and curiouser!" - Alice' });
+    quote.addClass("wonderland-welcome-quote");
+    const supportLink = footer.createEl("p", { cls: "wonderland-welcome-support" });
+    supportLink.createSpan({ text: "Enjoying Wonderland? " });
+    const link = supportLink.createEl("a", {
+      text: "Support development",
+      href: "https://ko-fi.com/donjguido"
+    });
+    link.setAttr("target", "_blank");
   }
   onClose() {
     const { contentEl } = this;

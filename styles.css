@@ -247,3 +247,153 @@
   font-family: var(--font-monospace);
   font-size: 0.9em;
 }
+
+/* Wonderland folder list */
+.wonderland-folder-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  margin-bottom: 4px;
+  background-color: var(--background-secondary);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.wonderland-folder-item.is-selected {
+  background-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.wonderland-folder-item .folder-name {
+  font-family: var(--font-monospace);
+}
+
+.wonderland-folder-item.is-selected .folder-name {
+  font-weight: bold;
+}
+
+.wonderland-folder-item .remove-btn {
+  margin-left: 8px;
+  padding: 2px 8px;
+  cursor: pointer;
+  background-color: transparent;
+  border: none;
+  color: var(--text-muted);
+}
+
+.wonderland-folder-item.is-selected .remove-btn {
+  color: var(--text-on-accent);
+}
+
+/* Mobile warning */
+.wonderland-mobile-warning {
+  background: var(--background-modifier-error);
+  color: var(--text-on-accent);
+  padding: 12px;
+  border-radius: 6px;
+  margin-bottom: 1em;
+}
+
+.wonderland-mobile-warning p {
+  margin-bottom: 0;
+}
+
+/* Blacklist container */
+.wonderland-blacklist-container {
+  background: var(--background-secondary);
+  padding: 12px;
+  border-radius: 6px;
+  margin-bottom: 1em;
+}
+
+.wonderland-blacklist-container p:first-child {
+  margin-top: 0;
+}
+
+.wonderland-blacklist-container ul {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+
+.wonderland-blacklist-container li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.wonderland-blacklist-container .remove-btn {
+  padding: 0 6px;
+  margin-left: 8px;
+  cursor: pointer;
+}
+
+/* Modal styles */
+.wonderland-prompt-description {
+  color: var(--text-muted);
+  margin-bottom: 1em;
+}
+
+.wonderland-folder-select {
+  margin-bottom: 1em;
+}
+
+.wonderland-new-folder-input {
+  margin-top: 0.5em;
+}
+
+.wonderland-new-folder-input input {
+  width: 100%;
+}
+
+.wonderland-prompt-input {
+  width: 100%;
+  margin-bottom: 1em;
+  padding: 0.5em;
+  resize: vertical;
+}
+
+.wonderland-button-container {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5em;
+}
+
+/* Welcome modal */
+.wonderland-welcome-features {
+  margin: 1em 0;
+  padding-left: 1.5em;
+}
+
+.wonderland-welcome-features li {
+  margin-bottom: 0.5em;
+}
+
+.wonderland-welcome-support {
+  margin-top: 1.5em;
+  padding-top: 1em;
+  border-top: 1px solid var(--background-modifier-border);
+  font-size: 0.9em;
+  color: var(--text-muted);
+}
+
+.wonderland-welcome-support a {
+  color: var(--text-accent);
+}
+
+/* Setup modal */
+.wonderland-setup-description {
+  color: var(--text-muted);
+  margin-bottom: 1em;
+}
+
+/* Settings textarea full width */
+.wonderland-settings-textarea textarea {
+  width: 100%;
+  min-height: 80px;
+}
+
+.wonderland-settings-input input {
+  width: 100%;
+}

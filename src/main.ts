@@ -34,6 +34,14 @@ import {
   PLACEHOLDER_NOTE_USER_PROMPT,
 } from './prompts/placeholderNote';
 
+// Debug logging - only enabled in development
+const DEBUG = false;
+function debugLog(...args: unknown[]): void {
+  if (DEBUG) {
+    debugLog('', ...args);
+  }
+}
+
 export default class EvergreenAIPlugin extends Plugin {
   settings: EvergreenAISettings;
   aiService: AIService;
@@ -109,7 +117,7 @@ export default class EvergreenAIPlugin extends Plugin {
 
     for (const folder of this.settings.wonderlandFolders) {
       if (folder.path === oldPath) {
-        console.log(`Wonderland - Folder renamed from ${oldPath} to ${newPath}`);
+        debugLog(`Folder renamed from ${oldPath} to ${newPath}`);
         folder.path = newPath;
         updated = true;
       }
@@ -129,7 +137,7 @@ export default class EvergreenAIPlugin extends Plugin {
     this.settings.wonderlandFolders = this.settings.wonderlandFolders.filter(folder => {
       const isDeleted = folder.path === deletedPath || folder.path.startsWith(deletedPath + '/');
       if (isDeleted) {
-        console.log(`Wonderland - Removing deleted folder from settings: ${folder.path}`);
+        debugLog(`Removing deleted folder from settings: ${folder.path}`);
       }
       return !isDeleted;
     });
@@ -181,7 +189,7 @@ export default class EvergreenAIPlugin extends Plugin {
       if (wonderlandFolder) {
         this.lastActiveWonderlandFolder = wonderlandFolder;
         // Only log on change to reduce noise
-        // console.log('Wonderland - Active folder tracked:', wonderlandFolder);
+        // debugLog(' Active folder tracked:', wonderlandFolder);
       }
     }
   }
@@ -449,19 +457,19 @@ export default class EvergreenAIPlugin extends Plugin {
 
               // Skip if it's an untitled note
               if (this.isUntitledNote(file.basename)) {
-                console.log('Wonderland - Untitled note created, skipping tracking');
+                debugLog(' Untitled note created, skipping tracking');
                 return;
               }
 
               if (isEmpty) {
                 // If file is already in a Wonderland folder, track it with that folder
                 if (fileWonderlandFolder) {
-                  console.log('Wonderland - New empty file created in Wonderland:', file.path);
+                  debugLog(' New empty file created in Wonderland:', file.path);
                   this.pendingGenerations.set(file.path, fileWonderlandFolder);
                 }
                 // If file is outside Wonderland but we have a last active folder, track for move
                 else if (sourceFolder) {
-                  console.log('Wonderland - New empty file created outside Wonderland:', file.path, '- will move to:', sourceFolder);
+                  debugLog(' New empty file created outside Wonderland:', file.path, '- will move to:', sourceFolder);
                   this.pendingGenerations.set(file.path, sourceFolder);
                 }
               }
@@ -506,7 +514,7 @@ export default class EvergreenAIPlugin extends Plugin {
         for (const folder of this.settings.wonderlandFolders) {
           if (folder.path.startsWith(oldPath + '/')) {
             const newFolderPath = folder.path.replace(oldPath, file.path);
-            console.log(`Wonderland - Parent folder renamed, updating ${folder.path} to ${newFolderPath}`);
+            debugLog(` Parent folder renamed, updating ${folder.path} to ${newFolderPath}`);
             folder.path = newFolderPath;
             await this.saveSettings();
           }
@@ -540,7 +548,7 @@ export default class EvergreenAIPlugin extends Plugin {
       }, 500);
     }
 
-    console.log('Wonderland plugin loaded - ready to explore');
+    debugLog('Plugin loaded - ready to explore');
   }
 
   onunload() {
@@ -552,7 +560,7 @@ export default class EvergreenAIPlugin extends Plugin {
     for (const interval of this.autoUpdateIntervals.values()) {
       window.clearInterval(interval);
     }
-    console.log('Wonderland plugin unloaded');
+    debugLog('Plugin unloaded');
   }
 
   // Set up intervals for all configured folders
@@ -578,22 +586,22 @@ export default class EvergreenAIPlugin extends Plugin {
     if (folder.organizeOnInterval && folder.autoOrganize) {
       const intervalMs = folder.organizeIntervalMinutes * 60 * 1000;
       const intervalId = window.setInterval(async () => {
-        console.log(`Wonderland - Running scheduled organization for ${folder.path}`);
+        debugLog(` Running scheduled organization for ${folder.path}`);
         await this.organizeWonderlandFolder(folder, true);
       }, intervalMs);
       this.organizeIntervals.set(folder.path, intervalId);
-      console.log(`Wonderland - Auto-organize scheduled every ${folder.organizeIntervalMinutes} minutes for ${folder.path}`);
+      debugLog(` Auto-organize scheduled every ${folder.organizeIntervalMinutes} minutes for ${folder.path}`);
     }
 
     // Auto-update interval
     if (folder.autoUpdateNotes) {
       const intervalMs = folder.autoUpdateIntervalMinutes * 60 * 1000;
       const intervalId = window.setInterval(async () => {
-        console.log(`Wonderland - Running scheduled auto-update for ${folder.path}`);
+        debugLog(` Running scheduled auto-update for ${folder.path}`);
         await this.autoUpdateFolderNotes(folder, true);
       }, intervalMs);
       this.autoUpdateIntervals.set(folder.path, intervalId);
-      console.log(`Wonderland - Auto-update scheduled every ${folder.autoUpdateIntervalMinutes} minutes for ${folder.path}`);
+      debugLog(` Auto-update scheduled every ${folder.autoUpdateIntervalMinutes} minutes for ${folder.path}`);
     }
   }
 
@@ -704,7 +712,7 @@ export default class EvergreenAIPlugin extends Plugin {
   async handleLinkClick(evt: MouseEvent): Promise<void> {
     const target = evt.target as HTMLElement;
 
-    console.log('Wonderland - Click detected on:', target.tagName, target.className);
+    debugLog(' Click detected on:', target.tagName, target.className);
 
     let linkText: string | null = null;
 
@@ -712,7 +720,7 @@ export default class EvergreenAIPlugin extends Plugin {
     let linkElement: HTMLElement | null = target.closest('.internal-link') as HTMLElement;
     if (linkElement) {
       linkText = linkElement.getAttribute('data-href');
-      console.log('Wonderland - Found internal-link, href:', linkText);
+      debugLog(' Found internal-link, href:', linkText);
     }
 
     // Method 2: Editor/Source mode - look for CodeMirror wiki-link structure
@@ -723,11 +731,11 @@ export default class EvergreenAIPlugin extends Plugin {
         const lineEl = target.closest('.cm-line');
         if (lineEl) {
           const lineText = lineEl.textContent || '';
-          console.log('Wonderland - Line text:', lineText);
+          debugLog(' Line text:', lineText);
 
           // Extract all [[links]] from the line
           const linkMatches = lineText.match(/\[\[([^\]]+)\]\]/g);
-          console.log('Wonderland - Link matches:', linkMatches);
+          debugLog(' Link matches:', linkMatches);
 
           if (linkMatches && linkMatches.length > 0) {
             // Get the text content of the clicked element and its parent spans
@@ -758,7 +766,7 @@ export default class EvergreenAIPlugin extends Plugin {
               parent = parent.parentElement;
             }
 
-            console.log('Wonderland - Clicked text:', clickedText);
+            debugLog(' Clicked text:', clickedText);
 
             // Try to match clicked text to one of the links
             for (const match of linkMatches) {
@@ -771,7 +779,7 @@ export default class EvergreenAIPlugin extends Plugin {
                   clickedText.includes(linkName) ||
                   innerText.includes(clickedText)) {
                 linkText = linkName;
-                console.log('Wonderland - Matched link:', linkText);
+                debugLog(' Matched link:', linkText);
                 break;
               }
             }
@@ -779,7 +787,7 @@ export default class EvergreenAIPlugin extends Plugin {
             // Fallback: if only one link on the line, use it
             if (!linkText && linkMatches.length === 1) {
               linkText = linkMatches[0].slice(2, -2).split('|')[0];
-              console.log('Wonderland - Using single link on line:', linkText);
+              debugLog(' Using single link on line:', linkText);
             }
           }
         }
@@ -787,13 +795,13 @@ export default class EvergreenAIPlugin extends Plugin {
     }
 
     if (!linkText) {
-      console.log('Wonderland - Could not find link text, ignoring');
+      debugLog(' Could not find link text, ignoring');
       return;
     }
 
     // Check if the linked note exists
     const linkedFile = this.app.metadataCache.getFirstLinkpathDest(linkText, '');
-    console.log('Wonderland - Linked file exists:', !!linkedFile);
+    debugLog(' Linked file exists:', !!linkedFile);
     if (linkedFile) return;
 
     // Get the current file to check if it's in a Wonderland folder
@@ -802,17 +810,17 @@ export default class EvergreenAIPlugin extends Plugin {
 
     const folderSettings = this.getWonderlandSettingsFor(activeFile.path);
     if (!folderSettings) {
-      console.log('Wonderland - Source note not in a Wonderland folder, ignoring');
+      debugLog(' Source note not in a Wonderland folder, ignoring');
       return;
     }
 
     // Check if auto-generation is enabled for this folder
     if (!folderSettings.autoGeneratePlaceholders) {
-      console.log('Wonderland - Auto-generation disabled for this folder');
+      debugLog(' Auto-generation disabled for this folder');
       return;
     }
 
-    console.log('Wonderland - Intercepting placeholder link click for:', linkText);
+    debugLog(' Intercepting placeholder link click for:', linkText);
 
     evt.preventDefault();
     evt.stopPropagation();
@@ -860,9 +868,9 @@ export default class EvergreenAIPlugin extends Plugin {
             const newFilePath = `${newFolderPath}/${newFile.name}`;
             try {
               await this.app.fileManager.renameFile(newFile, newFilePath);
-              console.log(`Wonderland - Moved note to: ${classifiedFolder}`);
+              debugLog(` Moved note to: ${classifiedFolder}`);
             } catch (e) {
-              console.error('Wonderland - Failed to move note:', e);
+              console.error(' Failed to move note:', e);
             }
           }
         }
@@ -882,7 +890,7 @@ export default class EvergreenAIPlugin extends Plugin {
 
     // Check if note is blacklisted
     if (this.isNoteBlacklisted(file.path, folderSettings)) {
-      console.log(`Wonderland - Skipping enrichment for blacklisted note: ${file.basename}`);
+      debugLog(` Skipping enrichment for blacklisted note: ${file.basename}`);
       if (!silent) new Notice(`"${file.basename}" is blacklisted from enrichment`);
       return false;
     }
@@ -1094,10 +1102,10 @@ export default class EvergreenAIPlugin extends Plugin {
     folderSettings.notesSinceLastOrganize = (folderSettings.notesSinceLastOrganize || 0) + 1;
     await this.saveSettings();
 
-    console.log(`Wonderland - Notes since last organize: ${folderSettings.notesSinceLastOrganize}/${folderSettings.organizeNoteCountThreshold}`);
+    debugLog(` Notes since last organize: ${folderSettings.notesSinceLastOrganize}/${folderSettings.organizeNoteCountThreshold}`);
 
     if (folderSettings.notesSinceLastOrganize >= folderSettings.organizeNoteCountThreshold) {
-      console.log('Wonderland - Note count threshold reached, triggering reorganization');
+      debugLog(' Note count threshold reached, triggering reorganization');
       await this.organizeWonderlandFolder(folderSettings, true);
     }
   }
@@ -1109,10 +1117,10 @@ export default class EvergreenAIPlugin extends Plugin {
     folderSettings.notesSinceLastEnrich = (folderSettings.notesSinceLastEnrich || 0) + 1;
     await this.saveSettings();
 
-    console.log(`Wonderland - Notes since last enrich: ${folderSettings.notesSinceLastEnrich}/${folderSettings.enrichNoteCountThreshold}`);
+    debugLog(` Notes since last enrich: ${folderSettings.notesSinceLastEnrich}/${folderSettings.enrichNoteCountThreshold}`);
 
     if (folderSettings.notesSinceLastEnrich >= folderSettings.enrichNoteCountThreshold) {
-      console.log('Wonderland - Enrich threshold reached, triggering enrichment');
+      debugLog(' Enrich threshold reached, triggering enrichment');
       await this.autoUpdateFolderNotes(folderSettings, true);
     }
   }
@@ -1276,9 +1284,9 @@ ${response.content}
           const newFilePath = `${newFolderPath}/${file.name}`;
           try {
             await this.app.fileManager.renameFile(file, newFilePath);
-            console.log(`Wonderland - Moved note to: ${classifiedFolder}`);
+            debugLog(` Moved note to: ${classifiedFolder}`);
           } catch (e) {
-            console.error('Wonderland - Failed to move note:', e);
+            console.error(' Failed to move note:', e);
           }
         }
       }
@@ -1308,7 +1316,7 @@ ${response.content}
 
     // Block generation for "Untitled" notes - user is just creating a blank note
     if (this.isUntitledNote(file.basename)) {
-      console.log('Wonderland - Untitled note detected, skipping auto-generation');
+      debugLog(' Untitled note detected, skipping auto-generation');
       this.pendingGenerations.delete(file.path);
       return;
     }
@@ -1316,21 +1324,21 @@ ${response.content}
     // Check if this note was created from clicking an unresolved link
     const sourceWonderlandPath = this.pendingGenerations.get(file.path);
     if (!sourceWonderlandPath) {
-      console.log('Wonderland - Note not from link click, skipping auto-generation');
+      debugLog(' Note not from link click, skipping auto-generation');
       return;
     }
 
     // Get the folder settings for the SOURCE Wonderland folder
     const folderSettings = this.settings.wonderlandFolders.find(f => f.path === sourceWonderlandPath);
     if (!folderSettings) {
-      console.log('Wonderland - Source folder no longer configured, skipping');
+      debugLog(' Source folder no longer configured, skipping');
       this.pendingGenerations.delete(file.path);
       return;
     }
 
     // Check if auto-generation for empty notes is enabled for this folder
     if (!folderSettings.autoGenerateEmptyNotes) {
-      console.log('Wonderland - Auto-generation disabled for this folder');
+      debugLog(' Auto-generation disabled for this folder');
       this.pendingGenerations.delete(file.path);
       return;
     }
@@ -1343,12 +1351,12 @@ ${response.content}
     const content = await this.app.vault.read(file);
     const trimmedContent = content.trim();
     if (trimmedContent.length > 0) {
-      console.log('Wonderland - Note has content, skipping auto-generation');
+      debugLog(' Note has content, skipping auto-generation');
       return;
     }
 
-    console.log('Wonderland - Empty note from link click detected:', file.basename);
-    console.log('Wonderland - Will place in folder:', sourceWonderlandPath);
+    debugLog(' Empty note from link click detected:', file.basename);
+    debugLog(' Will place in folder:', sourceWonderlandPath);
 
     // Check if the file is already in the correct Wonderland folder
     const isInCorrectFolder = file.path.startsWith(sourceWonderlandPath + '/');
@@ -1359,7 +1367,7 @@ ${response.content}
       const newPath = `${sourceWonderlandPath}/${file.name}`;
 
       try {
-        console.log('Wonderland - Moving file from', file.path, 'to', newPath);
+        debugLog(' Moving file from', file.path, 'to', newPath);
         await this.app.fileManager.renameFile(file, newPath);
 
         // Get the file at the new location
@@ -1369,7 +1377,7 @@ ${response.content}
           await this.generateContentForNote(movedFile, folderSettings);
         }
       } catch (e) {
-        console.error('Wonderland - Failed to move file:', e);
+        console.error(' Failed to move file:', e);
         // Try generating content at the current location anyway
         await this.generateContentForNote(file, folderSettings);
       }
@@ -1484,7 +1492,7 @@ ${response.content}
       if (classifiedFolder && classifiedFolder !== 'uncategorized') {
         targetFolder = `${folderSettings.path}/${classifiedFolder}`;
         await this.ensureFolderExists(targetFolder);
-        console.log(`Wonderland - Auto-classified note into: ${classifiedFolder}`);
+        debugLog(` Auto-classified note into: ${classifiedFolder}`);
       }
     }
 
@@ -1499,7 +1507,7 @@ ${response.content}
       const subfolders = await this.getWonderlandSubfolders(folderSettings.path);
 
       if (subfolders.length === 0) {
-        console.log('Wonderland - No subfolders exist yet, skipping classification');
+        debugLog(' No subfolders exist yet, skipping classification');
         return null;
       }
 
@@ -1533,7 +1541,7 @@ ${response.content}
 
       return null;
     } catch (error) {
-      console.error('Wonderland - Error classifying note:', error);
+      console.error(' Error classifying note:', error);
       return null;
     }
   }
@@ -2112,12 +2120,18 @@ class WelcomeModal extends Modal {
 
     // Footer
     const footer = contentEl.createDiv({ cls: 'wonderland-welcome-footer' });
-    footer.style.cssText = 'text-align: center; margin-top: 1em; color: var(--text-muted); font-size: 0.85em;';
-    footer.createEl('p', { text: '"Curiouser and curiouser!" - Alice' }).style.fontStyle = 'italic';
+    footer.addClass('wonderland-welcome-footer');
+    const quote = footer.createEl('p', { text: '"Curiouser and curiouser!" - Alice' });
+    quote.addClass('wonderland-welcome-quote');
 
-    // Support link
-    const supportLink = footer.createEl('p');
-    supportLink.innerHTML = 'Enjoying Wonderland? <a href="https://ko-fi.com/donjguido" target="_blank">Support development</a>';
+    // Support link - using DOM API instead of innerHTML
+    const supportLink = footer.createEl('p', { cls: 'wonderland-welcome-support' });
+    supportLink.createSpan({ text: 'Enjoying Wonderland? ' });
+    const link = supportLink.createEl('a', {
+      text: 'Support development',
+      href: 'https://ko-fi.com/donjguido',
+    });
+    link.setAttr('target', '_blank');
   }
 
   onClose() {

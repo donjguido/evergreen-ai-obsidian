@@ -7,6 +7,14 @@ import {
   PROVIDER_DEFAULTS
 } from '../types';
 
+// Debug logging - only enabled in development
+const DEBUG = false;
+function debugLog(...args: unknown[]): void {
+  if (DEBUG) {
+    console.log('Wonderland AI -', ...args);
+  }
+}
+
 // Error types for better error handling
 export class AIServiceError extends Error {
   constructor(
@@ -81,8 +89,8 @@ export class AIService {
     return this.executeWithRetry(async () => {
       const { endpoint, headers, body } = this.buildRequest(prompt, systemPrompt, false);
 
-      console.log('Wonderland - Making request to:', endpoint);
-      console.log('Wonderland - Using model:', body.model);
+      debugLog(' Making request to:', endpoint);
+      debugLog(' Using model:', body.model);
 
       try {
         const response = await requestUrl({
@@ -92,10 +100,10 @@ export class AIService {
           body: JSON.stringify(body),
         });
 
-        console.log('Wonderland - Response status:', response.status);
+        debugLog(' Response status:', response.status);
 
         if (response.status >= 400) {
-          console.error('Wonderland - Error response:', response.json);
+          console.error('AIService: Error response:', response.json);
           throw this.parseErrorResponse(response.status, response.json);
         }
 
@@ -116,7 +124,7 @@ export class AIService {
         }
 
         // Wrap unknown errors
-        console.error('Wonderland - Request failed:', error);
+        console.error('AIService: Request failed:', error);
         throw new AIServiceError(
           error instanceof Error ? error.message : 'Unknown error occurred',
           AIErrorCode.UNKNOWN,
@@ -277,7 +285,7 @@ export class AIService {
           // Cap the delay
           delayMs = Math.min(delayMs, this.retryConfig.maxDelayMs);
 
-          console.log(`Wonderland - Retry attempt ${attempt + 1}/${this.retryConfig.maxRetries} after ${delayMs}ms delay`);
+          debugLog(` Retry attempt ${attempt + 1}/${this.retryConfig.maxRetries} after ${delayMs}ms delay`);
           await this.delay(delayMs);
         } else {
           // Unknown error type, don't retry
