@@ -38,7 +38,7 @@ Create separate knowledge gardens for different domains:
 - **Organize on Note Count**: Reorganize after every X new notes
 - **Per-Folder Settings**: Each Wonderland can have different organization rules
 
-<img width="301" height="188" alt="image" src="https://github.com/user-attachments/assets/48ce2080-5843-4b5c-b4b7-bb4b22dad1ae" />
+<img width="346" height="354" alt="image" src="https://github.com/user-attachments/assets/6cdfd630-e675-45a2-bfe9-85b7e8c69a56" />
 <img width="348" height="323" alt="image" src="https://github.com/user-attachments/assets/12c1515c-e4e7-4423-8a36-651937cd466c" />
 
 
