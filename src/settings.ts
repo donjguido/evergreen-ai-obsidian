@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting, TFolder } from 'obsidian';
+import { App, PluginSettingTab, Setting, TFolder, Platform } from 'obsidian';
 import type EvergreenAIPlugin from './main';
 import { AIProvider, PROVIDER_DEFAULTS, TitleStyle, FolderGoal, WonderlandFolderSettings, createFolderSettings } from './types';
 
@@ -45,6 +45,16 @@ export class EvergreenAISettingTab extends PluginSettingTab {
             this.display();
           })
       );
+
+    // Show warning for Ollama on mobile
+    if (Platform.isMobile && this.plugin.settings.aiProvider === 'ollama') {
+      const warningEl = containerEl.createDiv({ cls: 'wonderland-mobile-warning' });
+      warningEl.style.cssText = 'background: var(--background-modifier-error); color: var(--text-on-accent); padding: 12px; border-radius: 6px; margin-bottom: 1em;';
+      warningEl.createEl('strong', { text: '⚠️ Ollama not supported on mobile' });
+      warningEl.createEl('p', {
+        text: 'Ollama runs locally and cannot be accessed from mobile devices. Please use OpenAI, Anthropic, or a cloud-based custom endpoint instead.',
+      }).style.marginBottom = '0';
+    }
 
     // API Key (not for Ollama)
     if (this.plugin.settings.aiProvider !== 'ollama') {

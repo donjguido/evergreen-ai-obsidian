@@ -1,4 +1,4 @@
-import { requestUrl, RequestUrlParam } from 'obsidian';
+import { requestUrl, Platform } from 'obsidian';
 import {
   EvergreenAISettings,
   AIProvider,
@@ -69,6 +69,15 @@ export class AIService {
   }
 
   async generate(prompt: string, systemPrompt: string): Promise<AIResponse> {
+    // Check for Ollama on mobile (won't work - localhost isn't accessible)
+    if (Platform.isMobile && this.settings.aiProvider === 'ollama') {
+      throw new AIServiceError(
+        'Ollama (local AI) is not supported on mobile devices. Please use OpenAI, Anthropic, or a cloud-based custom endpoint.',
+        AIErrorCode.UNKNOWN,
+        false
+      );
+    }
+
     return this.executeWithRetry(async () => {
       const { endpoint, headers, body } = this.buildRequest(prompt, systemPrompt, false);
 
@@ -123,6 +132,24 @@ export class AIService {
     onChunk: (chunk: string) => void,
     onComplete: () => void
   ): Promise<void> {
+    // On mobile, streaming is not well supported - fall back to non-streaming
+    // Also check for Ollama on mobile (won't work - localhost isn't accessible)
+    if (Platform.isMobile) {
+      if (this.settings.aiProvider === 'ollama') {
+        throw new AIServiceError(
+          'Ollama (local AI) is not supported on mobile devices. Please use OpenAI, Anthropic, or a cloud-based custom endpoint.',
+          AIErrorCode.UNKNOWN,
+          false
+        );
+      }
+
+      // Fall back to non-streaming on mobile for better compatibility
+      const response = await this.generate(prompt, systemPrompt);
+      onChunk(response.content);
+      onComplete();
+      return;
+    }
+
     const { endpoint, headers, body } = this.buildRequest(prompt, systemPrompt, true);
 
     // Create an AbortController for timeout handling

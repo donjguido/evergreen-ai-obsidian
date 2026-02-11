@@ -139,6 +139,14 @@ var EvergreenAISettingTab = class extends import_obsidian.PluginSettingTab {
         this.display();
       })
     );
+    if (import_obsidian.Platform.isMobile && this.plugin.settings.aiProvider === "ollama") {
+      const warningEl = containerEl.createDiv({ cls: "wonderland-mobile-warning" });
+      warningEl.style.cssText = "background: var(--background-modifier-error); color: var(--text-on-accent); padding: 12px; border-radius: 6px; margin-bottom: 1em;";
+      warningEl.createEl("strong", { text: "\u26A0\uFE0F Ollama not supported on mobile" });
+      warningEl.createEl("p", {
+        text: "Ollama runs locally and cannot be accessed from mobile devices. Please use OpenAI, Anthropic, or a cloud-based custom endpoint instead."
+      }).style.marginBottom = "0";
+    }
     if (this.plugin.settings.aiProvider !== "ollama") {
       new import_obsidian.Setting(containerEl).setName("API Key").setDesc("Your API key (stored locally, never sent anywhere except the AI provider)").addText(
         (text) => text.setPlaceholder("sk-...").setValue(this.plugin.settings.apiKey).onChange(async (value) => {
@@ -678,6 +686,13 @@ var AIService = class {
     }
   }
   async generate(prompt, systemPrompt) {
+    if (import_obsidian2.Platform.isMobile && this.settings.aiProvider === "ollama") {
+      throw new AIServiceError(
+        "Ollama (local AI) is not supported on mobile devices. Please use OpenAI, Anthropic, or a cloud-based custom endpoint.",
+        "UNKNOWN" /* UNKNOWN */,
+        false
+      );
+    }
     return this.executeWithRetry(async () => {
       const { endpoint, headers, body } = this.buildRequest(prompt, systemPrompt, false);
       console.log("Wonderland - Making request to:", endpoint);
@@ -717,6 +732,19 @@ var AIService = class {
   }
   async generateStream(prompt, systemPrompt, onChunk, onComplete) {
     var _a;
+    if (import_obsidian2.Platform.isMobile) {
+      if (this.settings.aiProvider === "ollama") {
+        throw new AIServiceError(
+          "Ollama (local AI) is not supported on mobile devices. Please use OpenAI, Anthropic, or a cloud-based custom endpoint.",
+          "UNKNOWN" /* UNKNOWN */,
+          false
+        );
+      }
+      const response = await this.generate(prompt, systemPrompt);
+      onChunk(response.content);
+      onComplete();
+      return;
+    }
     const { endpoint, headers, body } = this.buildRequest(prompt, systemPrompt, true);
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 12e4);
